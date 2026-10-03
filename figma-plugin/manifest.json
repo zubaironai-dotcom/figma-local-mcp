@@ -1,0 +1,16 @@
+{
+  "name": "Local MCP Bridge",
+  "id": "local-mcp-bridge",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma", "figjam"],
+  "documentAccess": "dynamic-page",
+  "enablePrivatePluginApi": true,
+  "permissions": ["currentuser", "teamlibrary"],
+  "networkAccess": {
+    "allowedDomains": ["ws://localhost:3055"],
+    "devAllowedDomains": ["ws://localhost:3055"],
+    "reasoning": "Connects only to the figma-local-mcp server on this machine. Images are downloaded by that server, so the plugin needs no internet access."
+  }
+}

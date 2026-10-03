@@ -1,0 +1,17 @@
+{
+  "name": "figma-local-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local WebSocket bridge between MCP clients and the Figma Plugin API.",
+  "workspaces": [
+    "mcp-server",
+    "figma-plugin"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "start": "npm start -w mcp-server",
+    "pretest": "npm run build -w mcp-server && npm run compile -w figma-plugin",
+    "test": "node test/bridge.test.mjs",
+    "test:quick": "npm run pretest && node test/bridge.test.mjs --quick"
+  }
+}

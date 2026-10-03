@@ -1,0 +1,15 @@
+{
+  "name": "figma-local-mcp-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Figma plugin that executes commands received from the local MCP bridge.",
+  "scripts": {
+    "compile": "tsc --outDir .build",
+    "build": "npm run compile && node publish.mjs",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.140.0",
+    "typescript": "^7.0.2"
+  }
+}

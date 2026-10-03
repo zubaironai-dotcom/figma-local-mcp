@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Local MCP Bridge</title>
+<style>
+  body {
+    margin: 0;
+    font: 12px/1.5 Inter, system-ui, sans-serif;
+    background: var(--figma-color-bg, #fff);
+    color: var(--figma-color-text, #333);
+  }
+  #root { padding: 10px 12px; }
+  .status { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--figma-color-icon-danger, #f24822); }
+  .on .dot { background: var(--figma-color-icon-success, #14ae5c); }
+  .meta { color: var(--figma-color-text-secondary, #888); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .warning { color: var(--figma-color-text-danger, #f24822); font-weight: 600; }
+  .warning:empty { display: none; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="status"><span class="dot"></span><span id="status">Connecting...</span></div>
+  <div class="meta" id="file">-</div>
+  <div class="meta">ws://localhost:3055 &middot; <span id="count">0</span> commands &middot; last: <span id="last">none</span></div>
+  <div class="meta" id="id">-</div>
+  <div class="warning" id="warning"></div>
+</div>
+<script>
+  // Network layer: owns the WebSocket, registers this file with the hub, relays calls to code.ts,
+  // sends heartbeats independently of the main thread, and buffers replies across reconnects.
+  const WS_URL = 'ws://localhost:3055';
+  const RETRY_MS = 3000;
+  const HEARTBEAT_MS = 5000;
+  const MAX_OUTBOX = 50;
+  const $ = (id) => document.getElementById(id);
+  let socket = null;
+  let info = null;
+  let count = 0;
+  /** Replies produced while disconnected; flushed after the next registration. */
+  const outbox = [];
+
+  const toMain = (msg) => parent.postMessage({ pluginMessage: msg }, '*');
+
+  function send(msg) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(msg));
+      return true;
+    }
+    return false;
+  }
+
+  function setStatus(connected, text) {
+    $('root').classList.toggle('on', connected);
+    $('status').textContent = text;
+  }
+
+  function register() {
+    if (!info || !send({ type: 'register', info })) return;
+    while (outbox.length && send(outbox[0])) outbox.shift();
+  }
+
+  function connect() {
+    socket = new WebSocket(WS_URL);
+    socket.onopen = () => {
+      setStatus(true, 'Connected to MCP server');
+      // The main thread waits for the server to identify itself (hub-hello) to detect outdated servers.
+      toMain({ type: 'ws-open' });
+      if (info) register();
+      else toMain({ type: 'ui-ready' });
+    };
+    socket.onmessage = (event) => {
+      let msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (err) {
+        return;
+      }
+      if (msg && msg.command && msg.command.charAt(0) !== '_') {
+        $('count').textContent = String(++count);
+        $('last').textContent = String(msg.command);
+      }
+      toMain(msg);
+    };
+    // An error is always followed by close, so retrying here covers both.
+    socket.onclose = () => {
+      setStatus(false, 'Disconnected, retrying in 3s');
+      setTimeout(connect, RETRY_MS);
+    };
+  }
+
+  // Liveness comes from this iframe, so a busy main thread never looks like a dead plugin.
+  setInterval(() => send({ type: 'heartbeat', at: Date.now() }), HEARTBEAT_MS);
+
+  function base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  /** Re-encodes a PNG export as JPEG at the requested quality (the Plugin API has no JPG quality setting). */
+  async function reencode(image) {
+    const bitmap = await createImageBitmap(new Blob([base64ToBytes(image.base64)], { type: image.mimeType }));
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0);
+    const url = canvas.toDataURL('image/jpeg', image.reencode.quality);
+    image.base64 = url.slice(url.indexOf(',') + 1);
+    image.mimeType = 'image/jpeg';
+    delete image.reencode;
+  }
+
+  async function reencodeImages(value) {
+    if (!value || typeof value !== 'object') return;
+    if (value.__image && value.__image.reencode) {
+      try {
+        await reencode(value.__image);
+      } catch (err) {
+        delete value.__image.reencode;
+        value.reencodeError = String(err);
+      }
+      return;
+    }
+    for (const key of Object.keys(value)) await reencodeImages(value[key]);
+  }
+
+  window.onmessage = async (event) => {
+    const msg = event.data && event.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'register') {
+      info = msg.info;
+      $('file').textContent = `${info.fileName} · ${info.editorType} · ${info.currentPageName}`;
+      $('id').textContent = `connectionId ${info.connectionId}`;
+      register();
+      return;
+    }
+    if (msg.type === 'bridge-warning') {
+      $('warning').textContent = msg.text || '';
+      return;
+    }
+    if (msg.type === 'progress' || msg.type === 'late-changes' || msg.type === 'unattributed-changes') {
+      send(msg);
+      return;
+    }
+    if (msg.type === 'reply') {
+      if (msg.reencode) {
+        await reencodeImages(msg.result);
+        delete msg.reencode;
+      }
+      if (!send(msg)) {
+        outbox.push(msg);
+        if (outbox.length > MAX_OUTBOX) outbox.shift();
+      }
+    }
+  };
+
+  toMain({ type: 'ui-ready' });
+  connect();
+</script>
+</body>
+</html>

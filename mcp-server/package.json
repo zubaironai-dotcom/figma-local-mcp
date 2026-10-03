@@ -1,0 +1,29 @@
+{
+  "name": "figma-local-mcp-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MCP server that relays paced tool calls to the Local MCP Bridge Figma plugin over WebSocket.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "figma-local-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "ws": "^8.22.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.0",
+    "typescript": "^7.0.2"
+  }
+}
